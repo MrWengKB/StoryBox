@@ -8,7 +8,7 @@ const stage = $('stage');
 const bookEl = $('book');
 const controls = $('controls');
 
-const FLIP_MS = 650;
+const FLIP_MS = 800;
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const S = {
@@ -188,11 +188,22 @@ async function go(target, animate = true) {
   }
   if (target === S.cur && bookEl.dataset.ready) return;
   S.busy = true;
+  S.goingTo = target;
   try {
-    await draw(target, animate && !reduceMotion && bookEl.dataset.ready && target !== S.cur);
+    if (animate && !reduceMotion && bookEl.dataset.ready && target !== S.cur) {
+      const turn = await prepareTurn(target);
+      await animateTurn(turn, 0, 1, FLIP_MS);
+      turn.commit();
+    } else {
+      await drawStatic(target);
+    }
   } catch (e) {
     console.error(e);
   }
+  endBusy();
+}
+
+function endBusy() {
   S.busy = false;
   if (S.pending != null) {
     const p = S.pending;
@@ -203,22 +214,21 @@ async function go(target, animate = true) {
   }
 }
 
-async function draw(target, animate) {
-  const from = S.views[S.cur];
-  const to = S.views[target];
-  const dir = target > S.cur ? 1 : -1;
-  await loadAspects([...to, ...(animate ? from : [])]);
+// 渲染某个画面需要的页面（以及翻页时需要的旧页面），按目标画面的格子大小
+async function canvasesFor(to, from) {
+  await loadAspects([...to, ...(from || [])]);
   const L = layoutFor(to);
   const dbl = to.length === 2;
-
-  // 需要的页面：按目标版式的格子大小渲染
   const need = new Map(); // page -> [w, h]
   const want = (p, i) => p && need.set(p, [L.widths[Math.min(i, L.widths.length - 1)], L.h]);
   to.forEach((p, i) => want(p, i));
-  if (animate) from.forEach((p, i) => want(p, dbl ? i : 0));
+  if (from) from.forEach((p, i) => want(p, dbl ? i : 0));
   const canvases = new Map();
   await Promise.all([...need].map(async ([p, [w, h]]) => canvases.set(p, await renderPage(p, w, h))));
+  return { L, dbl, canvases };
+}
 
+function setupBook(L, dbl) {
   const totalW = L.widths.reduce((a, b) => a + b, 0);
   bookEl.hidden = false;
   bookEl.style.width = totalW + 'px';
@@ -226,82 +236,199 @@ async function draw(target, animate) {
   bookEl.classList.toggle('double', dbl);
   bookEl.style.setProperty('--spine', (dbl ? L.widths[0] : 0) + 'px');
   bookEl.innerHTML = '';
-
   const slots = dbl
     ? [makeSlot(0, L.widths[0], L.h), makeSlot(L.widths[0], L.widths[1], L.h)]
     : [makeSlot(0, L.widths[0], L.h)];
   slots.forEach((s) => bookEl.appendChild(s));
-  const alignOf = (i) => (dbl ? (i === 0 ? 'end' : 'start') : 'center');
+  return slots;
+}
 
-  const finalize = () => {
-    bookEl.querySelectorAll('.flipper').forEach((f) => f.remove());
-    to.forEach((p, i) => fill(slots[i], canvases, p, alignOf(i)));
-    S.cur = target;
-    bookEl.dataset.ready = '1';
-    updateInfo();
+const alignOf = (dbl, i) => (dbl ? (i === 0 ? 'end' : 'start') : 'center');
+
+async function drawStatic(target) {
+  const to = S.views[target];
+  const { L, dbl, canvases } = await canvasesFor(to);
+  const slots = setupBook(L, dbl);
+  to.forEach((p, i) => fill(slots[i], canvases, p, alignOf(dbl, i)));
+  S.cur = target;
+  bookEl.dataset.ready = '1';
+  updateInfo();
+}
+
+/* ---------- 弯曲翻页 ----------
+   翻动的那一页被切成若干竖条，每一条都嵌套在前一条里面，并相对前一条再转一个小角度，
+   连起来就形成一条柔和的弧线。正面是旧页的切片，背面是新页的切片。 */
+const STRIPS = 14;
+const CURL = 85; // 翻到一半时，外缘比书脊一侧多转的角度
+
+// 把页面画布按格子对齐后，取出 [x0, x0+sw] 这一竖条画到新的小画布上
+function sliceCanvas(src, align, slotW, slotH, x0, sw, mirror = false) {
+  const pw = parseFloat(src.dataset.cssW);
+  const ph = parseFloat(src.dataset.cssH);
+  const k = src.width / pw; // 每个 CSS 像素对应的画布像素
+  const ox = align === 'start' ? 0 : align === 'end' ? slotW - pw : (slotW - pw) / 2;
+  const oy = (slotH - ph) / 2;
+  const c = document.createElement('canvas');
+  const cw = sw + 1; // 多 1px，避免竖条之间露缝
+  c.width = Math.max(1, Math.ceil(cw * k));
+  c.height = Math.max(1, Math.ceil(slotH * k));
+  c.style.width = cw + 'px';
+  c.style.height = slotH + 'px';
+  const ctx = c.getContext('2d');
+  if (mirror) {
+    // 单页模式下页面背面：显示正面的镜像（像透过纸张看到的样子）
+    ctx.translate(c.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(src, (ox - x0) * k, oy * k, pw * k, ph * k);
+  return c;
+}
+
+// side: 'right' 表示书脊在左、页面向右展开（向后翻时从右往左掀）；'left' 相反
+function buildCurl({ side, x, w, h, front, back, paperBack }) {
+  const root = document.createElement('div');
+  root.className = 'curl';
+  Object.assign(root.style, { left: x + 'px', width: w + 'px', height: h + 'px' });
+  const sw = w / STRIPS;
+  const strips = [];
+  let parent = root;
+  for (let k = 0; k < STRIPS; k++) {
+    const s = document.createElement('div');
+    s.className = 'strip';
+    const posLeft = side === 'right' ? (k === 0 ? 0 : sw) : k === 0 ? w - sw : -sw;
+    Object.assign(s.style, {
+      left: posLeft + 'px', width: sw + 'px', height: h + 'px',
+      transformOrigin: side === 'right' ? 'left center' : 'right center',
+    });
+    const f = document.createElement('div');
+    f.className = 'sface';
+    const b = document.createElement('div');
+    b.className = 'sface sback';
+    const fx = side === 'right' ? k * sw : w - (k + 1) * sw;
+    const bx = side === 'right' ? w - (k + 1) * sw : k * sw;
+    if (front && front.canvas) f.appendChild(sliceCanvas(front.canvas, front.align, w, h, fx, sw));
+    if (back && back.canvas) b.appendChild(sliceCanvas(back.canvas, back.align, w, h, bx, sw));
+    else if (paperBack) {
+      b.classList.add('paper');
+      if (front && front.canvas) b.appendChild(sliceCanvas(front.canvas, front.align, w, h, fx, sw, true));
+    }
+    const fs = document.createElement('i');
+    const bs = document.createElement('i');
+    f.appendChild(fs);
+    b.appendChild(bs);
+    s.append(f, b);
+    parent.appendChild(s);
+    strips.push({ el: s, fshade: fs, bshade: bs });
+    parent = s;
+  }
+  const sign = side === 'right' ? -1 : 1;
+  // 光影方向：从书脊一侧指向外缘
+  const fDir = side === 'right' ? 90 : 270;
+  const bDir = side === 'right' ? 270 : 90;
+  const shadeF = (a) => Math.max(0, 1 - Math.cos((a * Math.PI) / 180)) * 0.42;
+  const shadeB = (a) => Math.max(0, 1 + Math.cos((a * Math.PI) / 180)) * 0.42;
+  const grad = (dir, s0, s1) => `linear-gradient(${dir}deg, rgba(26,18,12,${s0.toFixed(3)}), rgba(26,18,12,${s1.toFixed(3)}))`;
+  return {
+    el: root,
+    // t: 0 = 平放在原位，1 = 完全翻到另一边
+    set(t) {
+      const curl = CURL * Math.sin(Math.PI * t);
+      let prevA = 0;
+      let prevMid = 0;
+      for (let k = 0; k < STRIPS; k++) {
+        const f = Math.pow(k / (STRIPS - 1), 1.6);
+        const a = Math.min(180, 180 * t + curl * f); // 这一条的累计角度
+        const st = strips[k];
+        st.el.style.transform = `rotateY(${sign * (a - prevA)}deg)`;
+        const start = k === 0 ? a : prevMid;
+        const nextA = Math.min(180, 180 * t + curl * Math.pow(Math.min(1, (k + 1) / (STRIPS - 1)), 1.6));
+        const end = (a + nextA) / 2;
+        // 越接近侧立越暗，用渐变让相邻竖条之间过渡平滑
+        st.fshade.style.background = grad(fDir, shadeF(start), shadeF(end));
+        st.bshade.style.background = grad(bDir, shadeB(start), shadeB(end));
+        prevA = a;
+        prevMid = end;
+      }
+    },
   };
+}
 
-  if (!animate) return finalize();
-
-  // 翻页动画：静止层显示“翻页后会露出”的内容，翻转层正面是旧页、背面是新页
-  const flipper = document.createElement('div');
-  flipper.className = 'flipper';
-  const front = document.createElement('div');
-  const back = document.createElement('div');
-  front.className = 'face front';
-  back.className = 'face back';
-  flipper.append(front, back);
-  let fromDeg, toDeg;
+// 准备一次翻页：摆好静止层和弯曲层，返回可以逐帧设置进度的对象
+async function prepareTurn(target) {
+  const from = S.views[S.cur];
+  const to = S.views[target];
+  const dir = target > S.cur ? 1 : -1;
+  const { L, dbl, canvases } = await canvasesFor(to, from);
+  const slots = setupBook(L, dbl);
+  const src = (p, align) => ({ canvas: p ? canvases.get(p) : null, align });
+  let curl;
+  let reverse = false;
 
   if (dbl) {
     if (dir > 0) {
       fill(slots[0], canvases, from[0], 'end');
       fill(slots[1], canvases, to[1], 'start');
-      Object.assign(flipper.style, { left: L.widths[0] + 'px', width: L.widths[1] + 'px', transformOrigin: 'left center' });
-      fill(front, canvases, from[1], 'start');
-      fill(back, canvases, to[0], 'end');
-      fromDeg = 0; toDeg = -180;
+      curl = buildCurl({ side: 'right', x: L.widths[0], w: L.widths[1], h: L.h, front: src(from[1], 'start'), back: src(to[0], 'end') });
     } else {
       fill(slots[0], canvases, to[0], 'end');
       fill(slots[1], canvases, from[1], 'start');
-      Object.assign(flipper.style, { left: '0px', width: L.widths[0] + 'px', transformOrigin: 'right center' });
-      fill(front, canvases, from[0], 'end');
-      fill(back, canvases, to[1], 'start');
-      fromDeg = 0; toDeg = 180;
+      curl = buildCurl({ side: 'left', x: 0, w: L.widths[0], h: L.h, front: src(from[0], 'end'), back: src(to[1], 'start') });
     }
+  } else if (dir > 0) {
+    fill(slots[0], canvases, to[0], 'center');
+    curl = buildCurl({ side: 'right', x: 0, w: L.widths[0], h: L.h, front: src(from[0], 'center'), paperBack: true });
   } else {
-    Object.assign(flipper.style, { left: '0px', width: L.widths[0] + 'px', transformOrigin: 'left center' });
-    if (dir > 0) {
-      fill(slots[0], canvases, to[0], 'center');
-      fill(front, canvases, from[0], 'center');
-      fromDeg = 0; toDeg = -180;
-    } else {
-      fill(slots[0], canvases, from[0], 'center');
-      fill(front, canvases, to[0], 'center');
-      fromDeg = -180; toDeg = 0;
-    }
+    // 单页向前翻：新页从左边翻回来盖住旧页
+    fill(slots[0], canvases, from[0], 'center');
+    curl = buildCurl({ side: 'right', x: 0, w: L.widths[0], h: L.h, front: src(to[0], 'center'), paperBack: true });
+    reverse = true;
   }
-  flipper.style.height = L.h + 'px';
-  flipper.style.transform = `rotateY(${fromDeg}deg)`;
-  flipper.classList.add(dir > 0 ? 'fwd' : 'bwd');
-  bookEl.appendChild(flipper);
-  flipper.getBoundingClientRect(); // 触发重排，让过渡生效
+  bookEl.appendChild(curl.el);
 
-  await new Promise((resolve) => {
-    let done = false;
-    const end = () => {
-      if (!done) {
-        done = true;
-        resolve();
-      }
+  const turn = {
+    dir,
+    single: !dbl,
+    width: dbl ? (dir > 0 ? L.widths[1] : L.widths[0]) : L.widths[0],
+    p: 0,
+    setP(p) {
+      turn.p = p;
+      const t = reverse ? 1 - p : p;
+      curl.set(t);
+      // 单页模式下，翻过去的纸逐渐淡出
+      if (!dbl) curl.el.style.opacity = t > 0.6 ? Math.max(0, 1 - (t - 0.6) / 0.4).toFixed(3) : '1';
+    },
+    commit() {
+      curl.el.remove();
+      to.forEach((p, i) => fill(slots[i], canvases, p, alignOf(dbl, i)));
+      S.cur = target;
+      bookEl.dataset.ready = '1';
+      updateInfo();
+    },
+    revert() {
+      return drawStatic(S.cur);
+    },
+  };
+  turn.setP(0);
+  return turn;
+}
+
+const easeInOut = (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+
+function animateTurn(turn, p0, p1, ms) {
+  return new Promise((resolve) => {
+    if (ms <= 0 || reduceMotion) {
+      turn.setP(p1);
+      return resolve();
+    }
+    const start = performance.now();
+    const stepFn = (now) => {
+      const x = Math.min(1, (now - start) / ms);
+      turn.setP(p0 + (p1 - p0) * easeInOut(x));
+      if (x < 1) requestAnimationFrame(stepFn);
+      else resolve();
     };
-    flipper.addEventListener('transitionend', end, { once: true });
-    setTimeout(end, FLIP_MS + 150);
-    flipper.style.transition = `transform ${FLIP_MS}ms cubic-bezier(.45,.05,.35,1)`;
-    flipper.style.transform = `rotateY(${toDeg}deg)`;
-    flipper.classList.add('turning');
+    requestAnimationFrame(stepFn);
   });
-  finalize();
 }
 
 // 预先渲染前后画面，翻页更流畅
@@ -320,8 +447,10 @@ function preload() {
   });
 }
 
-const next = () => go(S.cur + 1);
-const prev = () => go(S.cur - 1);
+// 连续快速点击时，以排队中的目标为基准继续翻
+const base = () => (!S.busy ? S.cur : S.pending != null ? S.pending : S.goingTo ?? S.cur);
+const next = () => go(base() + 1);
+const prev = () => go(base() - 1);
 const first = () => go(0);
 const last = () => go(S.views.length - 1);
 
@@ -411,27 +540,117 @@ $('exitBtn').onclick = () => {
   location.href = 'index.html';
 };
 
-// 点击左 1/3 上一页，右 1/3 下一页，中间（全屏时）显示/隐藏控制栏；也支持左右滑动
+// 点击左 1/3 上一页，右 1/3 下一页，中间（全屏时）显示/隐藏控制栏；
+// 按住页面左右拖动可以像真书一样慢慢翻页，松手后自动翻完或弹回
 let down = null;
+let drag = null;
+const activePointers = new Set();
+
 stage.addEventListener('pointerdown', (e) => {
+  activePointers.add(e.pointerId);
+  if (activePointers.size > 1) {
+    // 多指操作（缩放）时不翻页
+    down = null;
+    return;
+  }
   if (e.button !== 0 && e.pointerType === 'mouse') return;
-  down = { x: e.clientX, y: e.clientY, t: Date.now() };
+  if (e.target.closest('a, button')) return;
+  down = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: false };
 });
-stage.addEventListener('pointerup', (e) => {
-  if (!down || !S.views.length) return;
-  if (e.target.closest('a, button')) return (down = null);
+
+stage.addEventListener('pointermove', (e) => {
+  if (!down || e.pointerId !== down.id) return;
   const dx = e.clientX - down.x;
   const dy = e.clientY - down.y;
+  if (Math.abs(dx) > 12 || Math.abs(dy) > 12) down.moved = true;
+  if (drag) return updateDrag(e);
+  if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2 && !S.busy && S.views.length && bookEl.dataset.ready) {
+    const dir = dx < 0 ? 1 : -1;
+    const target = S.cur + dir;
+    if (target < 0 || target >= S.views.length) return;
+    startDrag(dir, target, e);
+  }
+});
+
+function startDrag(dir, target, e) {
+  S.busy = true;
+  S.goingTo = null;
+  try {
+    stage.setPointerCapture(e.pointerId);
+  } catch {}
+  const d = { dir, p: 0, startX: down.x, samples: [], turn: null, failed: false };
+  drag = d;
+  d.ready = prepareTurn(target)
+    .then((turn) => {
+      d.turn = turn;
+      turn.setP(d.p);
+    })
+    .catch((err) => {
+      console.error(err);
+      d.failed = true;
+    });
+  updateDrag(e);
+}
+
+function updateDrag(e) {
+  const d = drag;
+  const w = d.turn ? d.turn.width : stage.clientWidth / 2;
+  const travel = w * (d.turn && d.turn.single ? 1.1 : 1.7);
+  const moved = (d.startX - e.clientX) * d.dir; // 朝翻页方向移动的距离
+  d.p = Math.max(0, Math.min(1, moved / travel));
+  const now = performance.now();
+  d.samples.push({ x: e.clientX, t: now });
+  while (d.samples.length > 2 && now - d.samples[0].t > 120) d.samples.shift();
+  if (d.turn) d.turn.setP(d.p);
+}
+
+async function finishDrag(cancelled) {
+  const d = drag;
+  drag = null;
+  await d.ready;
+  if (d.failed || !d.turn) {
+    await drawStatic(S.cur).catch(() => {});
+    return endBusy();
+  }
+  // 松手时的速度（像素/毫秒，正值表示朝翻页方向）
+  let v = 0;
+  const now = performance.now();
+  d.samples = d.samples.filter((s) => now - s.t < 120);
+  if (d.samples.length >= 2) {
+    const a = d.samples[0];
+    const b = d.samples[d.samples.length - 1];
+    if (b.t > a.t) v = ((a.x - b.x) * d.dir) / (b.t - a.t);
+  }
+  let complete = !cancelled && (d.p > 0.4 || (v > 0.3 && d.p > 0.03));
+  if (v < -0.3) complete = false;
+  const end = complete ? 1 : 0;
+  const ms = Math.max(160, FLIP_MS * Math.abs(end - d.p));
+  await animateTurn(d.turn, d.p, end, ms);
+  if (complete) d.turn.commit();
+  else await d.turn.revert();
+  endBusy();
+}
+
+stage.addEventListener('pointerup', (e) => {
+  activePointers.delete(e.pointerId);
+  if (!down || e.pointerId !== down.id) return;
+  const wasMoved = down.moved;
   down = null;
-  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) return dx < 0 ? next() : prev();
-  if (Math.abs(dx) > 12 || Math.abs(dy) > 12) return;
+  if (drag) return finishDrag(false);
+  if (wasMoved || !S.views.length) return;
   const r = stage.getBoundingClientRect();
   const x = (e.clientX - r.left) / r.width;
   if (x < 1 / 3) prev();
   else if (x > 2 / 3) next();
   else if (isFs()) toggleControls();
 });
-stage.addEventListener('pointercancel', () => (down = null));
+stage.addEventListener('pointercancel', (e) => {
+  activePointers.delete(e.pointerId);
+  if (down && e.pointerId === down.id) {
+    down = null;
+    if (drag) finishDrag(true);
+  }
+});
 stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('keydown', (e) => {
