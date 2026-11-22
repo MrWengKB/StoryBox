@@ -5,6 +5,9 @@
 window.STORYBOX_CONFIG = {
   apiKey: 'AIzaSyBoNFN2gf-EJ_LwYsN6Jrk8xo4XTLVM5_s', // Google Drive API Key
   proxy: '',           // 可选：CORS 代理前缀，例如 'https://your-worker.workers.dev/?url='
-  booksUrl: 'books.json', // 站点共享书单（所有设备都能看到），留空则不加载
+  // 站点共享书单（所有设备都能看到）：可以是网站内的 'books.json'，
+  // 也可以是 Google Drive 上公开分享的 JSON 文件链接，例如
+  // 'https://drive.google.com/file/d/xxxxxxxx/view?usp=sharing'；留空则不加载
+  booksUrl: 'books.json',
   defaultViewMode: 'auto' // 阅读默认版式：'auto' | 'single' | 'double'
 };

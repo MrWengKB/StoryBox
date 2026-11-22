@@ -118,6 +118,10 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
 .field { display: block; margin-bottom: 14px; }
 .field > span { display: block; font-size: .92rem; margin-bottom: 6px; }
 .field em { font-style: normal; font-size: .85rem; }
+.field-msg { display: block; font-size: .85rem; margin-top: 4px; }
+.field-msg:empty { display: none; }
+.field-msg.ok { color: var(--ok); }
+.field-msg.err { color: var(--danger); }
 .log {
   margin-top: 12px; padding: 10px 12px; background: var(--bg); border-radius: 10px;
   font-size: .88rem; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;

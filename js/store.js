@@ -32,6 +32,8 @@ export function getSettings() {
     apiKey: (s.apiKey ?? '') || c.apiKey || '',
     proxy: (s.proxy ?? '') || c.proxy || '',
     viewMode: s.viewMode || c.defaultViewMode || 'auto',
+    // 共享书单地址：可以是网站内的 books.json，也可以是 Google Drive 上公开分享的 JSON 文件链接
+    listUrl: (s.listUrl ?? '') || c.booksUrl || '',
   };
 }
 export function getSavedSettings() {
@@ -65,17 +67,70 @@ export function saveLocalBooks(list) {
 }
 
 let sharedPromise = null;
+let sharedError = '';
+export function getSharedError() {
+  return sharedError;
+}
+
+// 从 Google Drive 链接中取出文件 ID 和 resourcekey；不是 Drive 链接时返回 null
+function driveFile(url) {
+  try {
+    const u = new URL(url, location.href);
+    if (!/(^|\.)google\.com$/.test(u.hostname)) return null;
+    const m = u.pathname.match(/\/d\/([\w-]+)/);
+    const id = m ? m[1] : u.searchParams.get('id');
+    return id ? { id, rk: u.searchParams.get('resourcekey') || '' } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchList(url) {
+  const f = driveFile(url);
+  let res;
+  if (f) {
+    const { apiKey, proxy } = getSettings();
+    if (apiKey) {
+      res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(apiKey)}`,
+        { cache: 'no-store', headers: f.rk ? { 'X-Goog-Drive-Resource-Keys': `${f.id}/${f.rk}` } : {} }
+      );
+    } else if (proxy) {
+      const target = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(f.id)}&export=download&confirm=t`;
+      res = await fetch(proxy.includes('{url}') ? proxy.replace('{url}', encodeURIComponent(target)) : proxy + encodeURIComponent(target), { cache: 'no-store' });
+    } else {
+      throw new Error('读取 Drive 上的书单需要 API Key 或代理');
+    }
+  } else {
+    res = await fetch(url, { cache: 'no-cache' });
+  }
+  if (!res.ok) throw new Error(res.status === 404 ? '找不到书单文件（404），请确认链接正确且已公开分享' : `读取书单失败（${res.status}）`);
+  let list;
+  try {
+    list = JSON.parse(await res.text());
+  } catch {
+    throw new Error('书单文件不是有效的 JSON');
+  }
+  if (!Array.isArray(list)) throw new Error('书单格式不正确（应为数组）');
+  return list.filter((b) => b && (b.id || b.url)).map((b) => normalize(b, true));
+}
+
 export function getSharedBooks() {
   if (!sharedPromise) {
-    const url = config().booksUrl;
+    const url = getSettings().listUrl;
+    sharedError = '';
     sharedPromise = url
-      ? fetch(url, { cache: 'no-cache' })
-          .then((r) => (r.ok ? r.json() : []))
-          .then((list) => (Array.isArray(list) ? list.map((b) => normalize(b, true)) : []))
-          .catch(() => [])
+      ? fetchList(url).catch((e) => {
+          // 仓库里没有 books.json 时不算错误
+          if (!(url === 'books.json' && /404/.test(e.message))) sharedError = e.message;
+          return [];
+        })
       : Promise.resolve([]);
   }
   return sharedPromise;
+}
+export function resetSharedBooks() {
+  sharedPromise = null;
 }
 
 export function getHidden() {

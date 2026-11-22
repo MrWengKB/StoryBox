@@ -2,7 +2,7 @@
 
 import {
   getAllBooks, getLocalBooks, saveLocalBooks, addBook, getHidden, setHidden,
-  getSettings, getSavedSettings, saveSettings, cache,
+  getSettings, getSavedSettings, saveSettings, cache, getSharedBooks, getSharedError, resetSharedBooks,
 } from './store.js';
 import { parseDriveUrl, getFileMeta, listFolder, stripPdf } from './import.js';
 
@@ -138,6 +138,11 @@ function sourceLabel(b) {
 
 async function renderList() {
   const books = await getAllBooks();
+  const shared = await getSharedBooks();
+  const err = getSharedError();
+  const msg = $('listMsg');
+  msg.className = 'field-msg ' + (err ? 'err' : 'ok');
+  msg.textContent = err ? '✗ ' + err : getSettings().listUrl && shared.length ? `✓ 已从共享书单读取 ${shared.length} 本` : '';
   $('count').textContent = books.length ? `（${books.length}）` : '';
   const ul = $('list');
   ul.innerHTML = '';
@@ -216,6 +221,8 @@ function loadSettings() {
   $('apiKey').value = saved.apiKey ?? eff.apiKey;
   $('proxy').value = saved.proxy ?? eff.proxy;
   $('viewMode').value = eff.viewMode;
+  $('listUrl').value = saved.listUrl ?? '';
+  $('listUrl').placeholder = (window.STORYBOX_CONFIG || {}).booksUrl || $('listUrl').placeholder;
 }
 
 $('saveBtn').addEventListener('click', () => {
@@ -223,7 +230,10 @@ $('saveBtn').addEventListener('click', () => {
     apiKey: $('apiKey').value.trim(),
     proxy: $('proxy').value.trim(),
     viewMode: $('viewMode').value,
+    listUrl: $('listUrl').value.trim(),
   });
+  resetSharedBooks();
+  renderList();
   $('settingsMsg').textContent = '✓ 已保存';
   setTimeout(() => ($('settingsMsg').textContent = ''), 2500);
 });

@@ -39,7 +39,7 @@
           <button id="clearBtn" class="btn danger">全部删除</button>
         </div>
       </div>
-      <p class="hint">书单保存在当前浏览器中。想让所有设备都看到同一份书单，可以“导出书单”，把文件命名为 <code>books.json</code> 放到网站根目录。</p>
+      <p class="hint">在这里添加的书保存在当前浏览器中。想让所有设备都看到同一份书单：点“导出书单”，把文件上传到 Google Drive 并公开分享，再把链接填到下面“设置”里的“共享书单”（或写进 <code>js/config.js</code>）。以后更新时，在 Drive 里对原文件“管理版本”（Manage versions）上传新版本即可，链接不变。</p>
       <ul id="list" class="book-list"></ul>
     </section>
 
@@ -52,6 +52,11 @@
       <label class="field">
         <span>CORS 代理 <em class="muted">（可选，没有 API Key 时使用；地址会拼接在后面，或替换其中的 {url}）</em></span>
         <input id="proxy" type="text" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev/?url=">
+      </label>
+      <label class="field">
+        <span>共享书单 <em class="muted">（所有设备共用的书单 JSON：可以填 Google Drive 上公开分享的文件链接，或网站内的 books.json；留空使用网站默认）</em></span>
+        <input id="listUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://drive.google.com/file/d/xxxxxxxx/view?usp=sharing">
+        <span id="listMsg" class="field-msg"></span>
       </label>
       <label class="field">
         <span>默认版式</span>
