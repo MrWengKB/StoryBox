@@ -1,1 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📚</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 故事盒子 Logo：三本叠放的书 -->
+  <!-- 底层：蓝色 -->
+  <rect x="4" y="45" width="56" height="16" rx="3.5" fill="#3b7dd8"/>
+  <rect x="44" y="49" width="12" height="8" rx="1.5" fill="#fdf8ef"/>
+  <rect x="11" y="45" width="4" height="16" fill="#2c64b3"/>
+  <!-- 中层：绿色 -->
+  <rect x="8" y="28" width="50" height="16" rx="3.5" fill="#43a86b"/>
+  <rect x="12" y="32" width="12" height="8" rx="1.5" fill="#fdf8ef"/>
+  <rect x="47" y="28" width="4" height="16" fill="#348656"/>
+  <!-- 顶层：橙红色，稍微倾斜 -->
+  <g transform="rotate(-9 32 19)">
+    <rect x="6" y="11" width="50" height="16" rx="3.5" fill="#e8734a"/>
+    <rect x="40" y="15" width="12" height="8" rx="1.5" fill="#fdf8ef"/>
+    <rect x="13" y="11" width="4" height="16" fill="#c95a33"/>
+  </g>
+</svg>
