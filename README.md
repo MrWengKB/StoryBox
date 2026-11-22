@@ -20,35 +20,10 @@
 - 页面按每个 PDF 自己的比例缩放显示，尽量占满屏幕；双页时封面单独显示在右侧，之后两页一组。
 - 会记住每本书读到哪一页；读过的 PDF 会缓存在浏览器里（IndexedDB，最多 15 本），再次打开更快。
 
-## Google Drive 的限制与 API Key（重要）
+## Google Drive 与 API Key（重要）
 
-浏览器出于跨域（CORS）限制，**不能直接从 `drive.google.com` 下载文件内容**，所以静态网页需要以下任一方式：
-
-### 方式一（推荐）：Google Drive API Key
-
-公开分享（“知道链接的任何人都可查看”）的文件和文件夹，可以用一个免费的 API Key 通过 Drive API 读取，Drive API 支持跨域访问。
-
-1. 打开 [Google Cloud Console](https://console.cloud.google.com/)，新建一个项目。
-2. 在“API 和服务 → 库”中启用 **Google Drive API**。
-3. 在“API 和服务 → 凭据”中“创建凭据 → API 密钥”。
-4. 强烈建议限制这个密钥：
-   - **应用限制**：选“网站”，添加你的网址，例如 `https://mrwengkb.github.io/*`（本地测试可再加 `http://localhost:*/*`）。
-   - **API 限制**：只允许 Google Drive API。
-5. 把密钥填到 `setup.html` 的“设置”里（只保存在当前浏览器），或者填到 `js/config.js` 的 `apiKey`，这样所有设备打开网站都能直接用。
-
-有了 API Key，添加文件时会自动读取书名，添加文件夹时会自动列出里面的所有 PDF。
-
-> 密钥写在 `config.js` 里会公开在网页源码中。只要按上面第 4 步做了网址和 API 限制，别人拿到也只能在你的网站上读取公开文件，风险很小。
-
-### 方式二：CORS 代理
-
-不想用 API Key，也可以部署一个代理（例如 `tools/cors-proxy-worker.js`，可直接部署到 Cloudflare Workers 免费版），然后在设置里填写 `https://<你的worker>.workers.dev/?url=`。代理模式下文件夹是通过解析 Drive 的“嵌入式文件夹视图”页面来抓取的，Google 改版时可能失效。
-
-### 其他说明
-
-- 文件和文件夹必须设置为“知道链接的任何人都可查看”。
-- 书架缩略图优先使用 Drive 自带的缩略图（就是第一页）；取不到时会下载 PDF 用 pdf.js 渲染第一页并缓存。
-- 也可以添加任何允许跨域访问的 PDF 直链，比如把 PDF 直接放在本仓库里：`https://mrwengkb.github.io/StoryBox/books/xxx.pdf`。
+浏览器有跨域限制，网页不能直接从 `drive.google.com` 下载文件，需要一个免费的 Google Drive API Key（或者 CORS 代理）。
+设置步骤和常见问题见 **[API_Guide.md](API_Guide.md)**。
 
 ## 书单保存在哪里
 
@@ -74,6 +49,7 @@ python3 -m http.server 8000
 index.html / setup.html / reader.html
 style.css
 books.json            站点共享书单（可选）
+API_Guide.md          API Key 设置指南
 js/config.js          站点默认配置（API Key、代理、默认版式）
 js/store.js           书单、设置、进度、缓存
 js/import.js          Drive 链接解析、文件夹抓取、PDF 下载、pdf.js
