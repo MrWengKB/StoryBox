@@ -50,7 +50,7 @@ code { background: var(--line); padding: 0 4px; border-radius: 4px; font-size: .
   position: sticky; top: 0; z-index: 5;
 }
 .brand { font-size: 1.3rem; font-weight: 700; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
-.brand-icon { font-size: 1.5rem; }
+.brand-icon { width: 1.6rem; height: 1.6rem; }
 .topbar nav { display: flex; gap: 4px; }
 .topbar nav a {
   color: var(--muted); text-decoration: none; padding: 6px 12px; border-radius: 999px; font-size: .95rem; white-space: nowrap;
