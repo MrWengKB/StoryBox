@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>添加绘本 · 故事盒子</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9A%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script src="js/config.js"></script>
+</head>
+<body class="page-setup">
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-icon">📚</span>故事盒子</a>
+    <nav>
+      <a href="index.html">书架</a>
+      <a href="setup.html" class="active">添加 / 设置</a>
+    </nav>
+  </header>
+
+  <main class="setup">
+    <section class="card">
+      <h2>添加绘本</h2>
+      <p class="hint">每行一个 Google Drive 链接：可以是公开分享的 <b>PDF 文件</b>，也可以是公开分享的 <b>文件夹</b>（会自动找出里面所有 PDF）。
+        想自定义书名，可以写成“书名 链接”。也支持其他可直接访问的 PDF 地址。</p>
+      <textarea id="links" rows="5" placeholder="https://drive.google.com/file/d/xxxxxxxx/view?usp=sharing&#10;https://drive.google.com/drive/folders/yyyyyyyy&#10;小熊过生日 https://drive.google.com/file/d/zzzzzzzz/view"></textarea>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="recursive" checked> 文件夹包含子文件夹</label>
+        <button id="addBtn" class="btn primary">添加</button>
+      </div>
+      <div id="log" class="log" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>已添加的绘本 <span id="count" class="muted"></span></h2>
+        <div class="tools">
+          <button id="exportBtn" class="btn">导出书单</button>
+          <label class="btn">导入书单<input id="importFile" type="file" accept=".json,application/json" hidden></label>
+          <button id="clearBtn" class="btn danger">全部删除</button>
+        </div>
+      </div>
+      <p class="hint">书单保存在当前浏览器中。想让所有设备都看到同一份书单，可以“导出书单”，把文件命名为 <code>books.json</code> 放到网站根目录。</p>
+      <ul id="list" class="book-list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>设置</h2>
+      <label class="field">
+        <span>Google Drive API Key <em class="muted">（读取 Drive 文件必需，详见 README）</em></span>
+        <input id="apiKey" type="text" autocomplete="off" spellcheck="false" placeholder="AIza...">
+      </label>
+      <label class="field">
+        <span>CORS 代理 <em class="muted">（可选，没有 API Key 时使用；地址会拼接在后面，或替换其中的 {url}）</em></span>
+        <input id="proxy" type="text" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev/?url=">
+      </label>
+      <label class="field">
+        <span>默认版式</span>
+        <select id="viewMode">
+          <option value="auto">自动（根据屏幕和页面比例选择单页或双页）</option>
+          <option value="single">单页</option>
+          <option value="double">双页</option>
+        </select>
+      </label>
+      <div class="row">
+        <span id="settingsMsg" class="muted"></span>
+        <button id="clearCacheBtn" class="btn">清除本地缓存</button>
+        <button id="saveBtn" class="btn primary">保存设置</button>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="js/setup.js"></script>
+</body>
+</html>
